@@ -12,4 +12,4 @@ async function shutdown() {
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 process.on('SIGHUP', shutdown)
-process.on('exit', shutdown)
+process.on('beforeExit', shutdown)
