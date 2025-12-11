@@ -1,17 +1,18 @@
 # on-shutdown
 
-A lightweight, zero-dependency Node.js utility for registering graceful shutdown handlers.
+A robust, zero-dependency Node.js utility for handling graceful shutdowns and process cleanup.
 
-Ensures your cleanup functions (e.g., closing database connections, releasing resources) are reliably called before the process exits. It hooks into process signals, uncaught exceptions, and even `process.exit()` calls.
+It ensures your cleanup functions are reliably called when the process exits, whether triggered by signals (SIGINT, SIGTERM), errors (uncaught exceptions), or manual calls to `process.exit()`.
 
 ## Features
 
 - **Simple API:** A single `on_shutdown` function to register your cleanup logic.
-- **Full Lifecycle Control:** Automatically handles `SIGINT`, `SIGTERM`, `SIGHUP`, `uncaughtException`, `unhandledRejection`, `beforeExit`, and patches `process.exit`.
-- **Robust Error Handling:** Custom error handler support with multi-level fallbacks to ensure shutdown proceeds even if cleanup tasks fail.
+- **Process Integration:** Overrides `process.exit` to ensure cleanup hooks run even when you exit manually.
+- **Error Safety:** Automatically catches `uncaughtException` and `unhandledRejection` to log errors and shut down gracefully.
 - **Ordered Execution:** Functions are executed in a Last-In, First-Out (LIFO) order.
-- **Async Support:** Supports asynchronous cleanup functions.
-- **Zero Dependencies:** Tiny and dependency-free.
+- **Async Support:** Supports asynchronous cleanup functions (Promises/async-await).
+- **Resilient:** Robust error handling during the shutdown phase itself prevents hanging processes.
+- **Customizable:** Full control over which signals or events trigger shutdown and their exit codes.
 
 ## Installation
 
@@ -24,30 +25,57 @@ npm install on-shutdown
 Import the `on_shutdown` function and register the functions you want to run on exit.
 
 ```javascript
+// your-app.js
 import { on_shutdown } from 'on-shutdown';
-import http from 'node:http';
+import process from 'node:process';
 
-// 1. Register cleanup tasks
+// --- Mock async functions ---
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Register cleanup logic
 on_shutdown(async () => {
-    console.log('Cleanup: Closing database connection...');
-    // await db.close();
+    console.log('Closing database connection...');
+    await sleep(100);
+    console.log('Database connection closed.');
 });
 
-const server = http.createServer((req, res) => res.end('Hello'));
-server.listen(3000);
-
-on_shutdown(async () => {
-    console.log('Cleanup: Stopping HTTP server...');
-    return new Promise(resolve => server.close(resolve));
+on_shutdown(() => {
+    console.log('Sync cleanup task...');
 });
 
-console.log('Server running. Press Ctrl+C or kill the process to test shutdown.');
+// --- Initialization ---
+console.log('Application running. Press Ctrl+C or wait for exit.');
 
-// 2. Process exit interception
-// Calling process.exit() elsewhere in your code will now 
-// automatically trigger the shutdown handlers defined above.
-// setTimeout(() => process.exit(0), 5000); 
+// Even if you call process.exit(), hooks will run!
+setTimeout(() => {
+    console.log('Calling process.exit(0)...');
+    process.exit(0);
+}, 2000);
 ```
+
+### Output
+
+```text
+Application running. Press Ctrl+C or wait for exit.
+Calling process.exit(0)...
+Sync cleanup task...
+Closing database connection...
+Database connection closed.
+```
+
+## Default Behavior
+
+By default, `on-shutdown` automatically sets up listeners for the following events:
+
+| Event | Exit Code | Action |
+| :--- | :--- | :--- |
+| **SIGINT** | 130 | Standard shutdown (Ctrl+C). |
+| **SIGTERM** | 143 | Standard shutdown (Docker/Kubernetes). |
+| **SIGHUP** | 0 | Reload signal (treated as shutdown). |
+| **error** | 1 | Logs error via `console.error` and exits. |
+| **uncaughtException** | 1 | Logs error via `console.error` and exits. |
+| **unhandledRejection**| 1 | Logs error via `console.error` and exits. |
+| **beforeExit** | N/A | Runs hooks if event loop empties. |
 
 ## API
 
@@ -55,69 +83,64 @@ console.log('Server running. Press Ctrl+C or kill the process to test shutdown.'
 
 Registers a function to be executed on process shutdown.
 
-- `func` (Function): The function to execute. Can be synchronous or asynchronous (return a Promise).
-
-Functions are executed in a Last-In, First-Out (LIFO) stack.
+- `func` (Function): The function to execute. Can be synchronous or asynchronous.
+- **Execution Order:** LIFO (Last-In, First-Out).
 
 ### `on_shutdown_error(func)`
 
-Sets a custom error handler for errors thrown during the shutdown process.
-Default behavior is `console.error`.
+Define a custom error handler for errors that occur *during* the execution of shutdown hooks.
 
-- `func` (Function): A function that receives the error object.
+- `func` (Function): A function that receives the error. Defaults to `console.error`.
 
 ```javascript
 import { on_shutdown_error } from 'on-shutdown';
 
-on_shutdown_error((err) => {
-    // Send to logging service instead of stderr
-    logger.error('Error during shutdown:', err);
+on_shutdown_error(async (err) => {
+    // Send to logging service instead of console
+    await myLogger.error('Error during shutdown:', err);
 });
 ```
 
 ### `shutdown(code)`
 
-Manually triggers the shutdown sequence. This is also what `process.exit()` maps to.
+Manually trigger the graceful shutdown sequence. This is the function that now powers `process.exit()`.
 
-- `code` (Number, optional): The exit code. Defaults to `process.exitCode` or `0`.
+- `code` (Number): The exit code (optional).
 
 ```javascript
 import { shutdown } from 'on-shutdown';
 
-// Trigger graceful shutdown manually with exit code 1
+// Trigger shutdown manually with exit code 1
 await shutdown(1);
 ```
 
 ### `set_shutdown_listener(event, code, event_fn)`
 
-Registers or updates a listener for a specific process event.
+Register or modify a listener for a specific process event.
 
-- `event` (String): The process event name (e.g., 'SIGINT', 'uncaughtException').
-- `code` (Number): The exit code to use when this event triggers shutdown.
-- `event_fn` (Function, optional): An optional callback to run immediately when the event fires, before the shutdown sequence begins.
+- `event` (String): The process event name (e.g., 'SIGINT', 'my-custom-event').
+- `code` (Number): The exit code to use when this event triggers.
+- `event_fn` (Function, optional): A specific callback to run for this event before shutdown logic begins.
 
-### `unset_shutdown_listener(event)`
+```javascript
+import { set_shutdown_listener } from 'on-shutdown';
 
-Removes the shutdown listener for a specific event. Useful if you want to handle specific signals entirely on your own or conflict with another library.
+// Change SIGINT to exit with code 0 instead of 130
+set_shutdown_listener('SIGINT', 0);
+
+// Listen to a custom signal
+set_shutdown_listener('SIGUSR2', 0, () => console.log('Received SIGUSR2'));
+```
+
+### `unset_shutdown_listener(...events)`
+
+Removes default or custom listeners. Useful if you want to handle specific signals entirely on your own.
+
+- `...events` (String[]): List of event names to remove.
 
 ```javascript
 import { unset_shutdown_listener } from 'on-shutdown';
 
-// Disable default handling of uncaught exceptions
-unset_shutdown_listener('uncaughtException');
+// Stop handling unhandledRejection automatically
+unset_shutdown_listener('unhandledRejection');
 ```
-
-## Default Behaviors
-
-By default, `on-shutdown` registers listeners for the following events:
-
-| Event | Exit Code | Notes |
-| :--- | :--- | :--- |
-| `SIGINT` | 130 | Typically Ctrl+C |
-| `SIGTERM` | 143 | Termination signal |
-| `SIGHUP` | 0 | Hangup detected |
-| `uncaughtException` | 1 | Logs error via `console.error` before shutdown |
-| `unhandledRejection` | 1 | Logs error via `console.error` before shutdown |
-| `beforeExit` | *current* | Triggered when event loop is empty |
-
-Additionally, `process.exit` is patched to execute the shutdown sequence before actually exiting the process.

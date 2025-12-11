@@ -35,15 +35,18 @@ export function set_shutdown_listener(event, code, event_fn) {
 	unset_shutdown_listener(event)
 	process.on(event, shutdown_listeners[event] = shutdown_with(() => event_fn?.(event), code))
 }
-export function unset_shutdown_listener(event) {
-	if (!shutdown_listeners[event]) return
-	process.off(event, shutdown_listeners[event])
-	delete shutdown_listeners[event]
+export function unset_shutdown_listener(...events) {
+	for (const event of events) {
+		if (!shutdown_listeners[event]) continue
+		process.off(event, shutdown_listeners[event])
+		delete shutdown_listeners[event]
+	}
 }
 
 set_shutdown_listener('SIGINT', 130)
 set_shutdown_listener('SIGTERM', 143)
 set_shutdown_listener('SIGHUP', 0)
+set_shutdown_listener('error', 1, console.error)
 set_shutdown_listener('uncaughtException', 1, console.error)
 set_shutdown_listener('unhandledRejection', 1, console.error)
 set_shutdown_listener('beforeExit')
