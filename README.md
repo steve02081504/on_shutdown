@@ -32,14 +32,14 @@ import process from 'node:process';
 // --- Mock async functions ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Register cleanup logic
-on_shutdown(async () => {
-    console.log('Closing database connection...');
+// Register cleanup logic (each hook receives the numeric exit code that will be used)
+on_shutdown(async (code) => {
+    console.log(`Closing database connection (exit ${code})...`);
     await sleep(100);
     console.log('Database connection closed.');
 });
 
-on_shutdown(() => {
+on_shutdown((code) => {
     console.log('Sync cleanup task...');
 });
 
@@ -59,7 +59,7 @@ setTimeout(() => {
 Application running. Press Ctrl+C or wait for exit.
 Calling process.exit(0)...
 Sync cleanup task...
-Closing database connection...
+Closing database connection (exit 0)...
 Database connection closed.
 ```
 
@@ -83,7 +83,7 @@ By default, `on-shutdown` automatically sets up listeners for the following even
 
 Registers a function to be executed on process shutdown.
 
-- `func` (Function): The function to execute. Can be synchronous or asynchronous.
+- `func` (Function): The function to execute. Can be synchronous or asynchronous. It is called with one argument: **`code`** (number), the exit code that will be passed to `process.exit` after all hooks finish.
 - **Execution Order:** LIFO (Last-In, First-Out).
 
 ### `on_shutdown_error(func)`
@@ -105,13 +105,16 @@ on_shutdown_error(async (err) => {
 
 Manually trigger the graceful shutdown sequence. This is the function that now powers `process.exit()`.
 
-- `code` (Number): The exit code (optional).
+- `code` (Number, optional): Exit code. If omitted, the value defaults to `process.exitCode ?? 0` (same as Node when you call `process.exit()` with no argument).
 
 ```javascript
 import { shutdown } from 'on-shutdown';
 
 // Trigger shutdown manually with exit code 1
 await shutdown(1);
+
+// Use current process.exitCode, or 0 if unset
+await shutdown();
 ```
 
 ### `set_shutdown_listener(event, code, event_fn)`
@@ -119,7 +122,7 @@ await shutdown(1);
 Register or modify a listener for a specific process event.
 
 - `event` (String): The process event name (e.g., 'SIGINT', 'my-custom-event').
-- `code` (Number): The exit code to use when this event triggers.
+- `code` (Number, optional): The exit code when this event triggers. If omitted, shutdown uses `process.exitCode ?? 0`, same as calling `shutdown()` with no argument.
 - `event_fn` (Function, optional): A specific callback to run for this event before shutdown logic begins.
 
 ```javascript

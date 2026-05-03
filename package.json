@@ -1,6 +1,6 @@
 {
 	"name": "on-shutdown",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"description": "A lightweight, zero-dependency Node.js utility for registering graceful shutdown handlers.",
 	"main": "main.mjs",
 	"type": "module",

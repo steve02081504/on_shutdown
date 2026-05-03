@@ -9,8 +9,9 @@ let is_shutting_down
 export async function shutdown(code) {
 	if (is_shutting_down) return
 	is_shutting_down = true
+	code ??= process.exitCode ?? 0
 	for (const func of shutdown_functions) try {
-		await func()
+		await func(code)
 	} catch (error) {
 		try { await error_handler(error) }
 		catch (error) {
@@ -18,7 +19,7 @@ export async function shutdown(code) {
 			catch (error) { console.error(error) } // wtf bro?
 		}
 	}
-	exit(code ?? process.exitCode ?? 0)
+	exit(code)
 }
 process.exit = shutdown
 export function shutdown_with(...additional_fns_or_code) {
