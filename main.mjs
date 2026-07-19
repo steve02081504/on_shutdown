@@ -24,7 +24,7 @@ export async function shutdown(code) {
 process.exit = shutdown
 export function shutdown_with(...additional_fns_or_code) {
 	let code
-	if (Object(additional_fns_or_code.slice(-1)[0]) instanceof Number) code = additional_fns_or_code.pop()
+	if (Object(additional_fns_or_code.slice(-1)[0] ?? 0) instanceof Number) code = additional_fns_or_code.pop()
 	return async _ => {
 		for (const func of additional_fns_or_code) try { await func() } catch (error) { console.error(error) }
 		await shutdown(code)
