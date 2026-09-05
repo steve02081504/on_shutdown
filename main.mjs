@@ -2,7 +2,10 @@ import process from 'node:process'
 
 const shutdown_functions = []
 export function on_shutdown(func) { shutdown_functions.unshift(func) }
-let error_handler = (...args) => console.error(...args) // allows libs like @steve02081504/virtual-console to override the default console.error behavior
+let error_handler = (...args) => {
+	console.error(...args) // allows libs like @steve02081504/virtual-console to override the default console.error behavior
+	debugger // helpful for user-debugging
+}
 export function on_shutdown_error(func) { error_handler = func }
 const exit = process.exit
 
@@ -27,20 +30,19 @@ export async function shutdown(code) {
 	exit(code)
 }
 process.exit = shutdown
-export function shutdown_with(...additional_fns_or_code) {
-	let code
-	if (Object(additional_fns_or_code.slice(-1)[0] ?? 0) instanceof Number) code = additional_fns_or_code.pop()
-	return async _ => {
-		for (const func of additional_fns_or_code) try { await func() } catch (error) { await handle_error(error) }
-		await shutdown(code)
-	}
-}
 
 export const shutdown_listeners = {}
 export function set_shutdown_listener(events, code, event_fn) {
 	for (const event of Array.isArray(events) ? events : [events]) {
 		unset_shutdown_listener(event)
-		process.on(event, shutdown_listeners[event] = shutdown_with(() => event_fn?.(event), code))
+		process.on(event, shutdown_listeners[event] = async (...args) => {
+			try {
+				await event_fn?.(event, ...args)
+			} catch (error) {
+				await handle_error(error)
+			}
+			await shutdown(code)
+		})
 	}
 }
 export function unset_shutdown_listener(...events) {
